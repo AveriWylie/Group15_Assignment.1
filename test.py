@@ -1,13 +1,13 @@
 """
 CP372 - Computer Networks, Spring 2026
-Assignment 1 - Automated Test Suite
-Group 15
+Assignment 1 - Automated Test Suite - G15
 
 Spawns the server as a subprocess and runs all suggested test scenarios
 directly over TCP sockets. Results are printed with PASS/FAIL.
 
 Usage:
   python3 test.py
+
 """
 
 import socket
@@ -15,21 +15,32 @@ import subprocess
 import os
 import sys
 import time
-import tempfile
 
-# ── Config ─────────────────────────────────────────────────────────────────────
+# Config
 HOST = "127.0.0.1"
-PORT = 5373          # separate port so it doesn't clash with a running server
+# separate port so it doesn't clash with a running server
+PORT = 5373
 BUFFER_SIZE = 4096
 SERVER_SCRIPT = os.path.join(os.path.dirname(__file__), "server.py")
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "server_files")
+USERS_FILE = os.path.join(os.path.dirname(__file__), "users.txt")
+# Counters
+passed = 0
+failed = 0
+# read valid usernames dynamically so the suite works for any users.txt
+with open(USERS_FILE) as _f:
+    _users = [line.strip() for line in _f if line.strip()]
 
-# ── Counters ───────────────────────────────────────────────────────────────────
+USER1 = _users[0]
+USER2 = _users[1] if len(_users) > 1 else _users[0]
+INVALID_USER = "NotAUser"
+
+while INVALID_USER in _users:
+    INVALID_USER += "X"
+
 passed = 0
 failed = 0
 
-
-# ── Low-level helpers ──────────────────────────────────────────────────────────
 
 def send_line(sock, line):
     sock.sendall((line + "\n").encode("utf-8"))
@@ -121,15 +132,15 @@ def test_login():
     print("\n── LOGIN tests ──")
     # Valid login
     s = new_conn()
-    send_line(s, "LOGIN Averi")
-    check("Valid login (Alice)", recv_line(s), "OK")
+    send_line(s, f"LOGIN {USER1}")
+    check(f"Valid login ({USER1})", recv_line(s), "OK")
     send_line(s, "QUIT")
     recv_line(s)
     s.close()
     # Invalid login
     s = new_conn()
-    send_line(s, "LOGIN NotAUser")
-    check("Invalid login (NotAUser)", recv_line(s), "ERR")
+    send_line(s, f"LOGIN {INVALID_USER}")
+    check(f"Invalid login ({INVALID_USER})", recv_line(s), "ERR")
     send_line(s, "QUIT")
     recv_line(s)
     s.close()
@@ -153,7 +164,7 @@ def test_msg():
     s.close()
     # MSG after login
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "MSG Hello Server!")
     check("MSG after LOGIN", recv_line(s), "OK")
@@ -162,7 +173,7 @@ def test_msg():
     s.close()
     # Empty MSG
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "MSG")
     check("Empty MSG", recv_line(s), "ERR")
@@ -186,17 +197,17 @@ def test_file_transfer():
 
     for label, name, payload in cases:
         s = new_conn()
-        send_line(s, "LOGIN Averi")
+        send_line(s, f"LOGIN {USER1}")
         recv_line(s)
         resp = send_file(s, name, payload)
         check(label + " - response", resp, "OK")
         stored = stored_bytes(name)
-        check_true(
-            label + " - content preserved",
-            stored == payload,
+
+        check_true(label + " - content preserved", stored == payload,
             detail=f"stored {None if stored is None else len(stored)} bytes, "
-                   f"expected {len(payload)} bytes",
+                   f""f"expected {len(payload)} bytes",
         )
+
         send_line(s, "QUIT")
         recv_line(s)
         s.close()
@@ -228,7 +239,7 @@ def test_errors():
     s.close()
     # FILE with no filename
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "FILE")
     check("FILE with no filename", recv_line(s), "ERR")
@@ -237,7 +248,7 @@ def test_errors():
     s.close()
     # FILE with invalid SIZE
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "FILE dummy.txt")
     r = recv_line(s)
@@ -261,7 +272,7 @@ def test_quit():
     s.close()
 
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "QUIT")
     check("QUIT after login", recv_line(s), "OK")
@@ -272,7 +283,7 @@ def test_reconnect():
     print("\n── Reconnect test ──")
     # First client connects and quits
     s = new_conn()
-    send_line(s, "LOGIN Averi")
+    send_line(s, f"LOGIN {USER1}")
     recv_line(s)
     send_line(s, "QUIT")
     recv_line(s)
@@ -280,7 +291,7 @@ def test_reconnect():
     time.sleep(0.2)
     # Second client connects right after
     s = new_conn()
-    send_line(s, "LOGIN Yakup")
+    send_line(s, f"LOGIN {USER2}")
     check("Reconnect after previous client quit", recv_line(s), "OK")
     send_line(s, "QUIT")
     recv_line(s)
