@@ -23,24 +23,22 @@ BUFFER_SIZE = 4096
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-
 def load_users(path: str) -> set:
-    """Load valid usernames from a file (one per line)."""
+
     if not os.path.exists(path):
         print(f"[WARNING] Users file '{path}' not found. No users will be allowed.")
         return set()
+
     with open(path, "r") as f:
         return {line.strip() for line in f if line.strip()}
 
 
 def send_response(conn: socket.socket, code: str, message: str) -> None:
-    """Send a protocol response: '<CODE> <message>\n'."""
     response = f"{code} {message}\n"
     conn.sendall(response.encode("utf-8"))
 
 
 def recv_line(conn: socket.socket) -> str:
-    """Receive data until newline; return decoded line (stripped)."""
     data = b""
     while True:
         chunk = conn.recv(1)
@@ -79,34 +77,37 @@ def handle_msg(conn: socket.socket, args: str, state: dict) -> None:
     send_response(conn, "OK", f"Message received: {args}")
 
 
+"""
+File transfer protocol:
+  1. Client sends: FILE <filename>
+  2. Server responds: OK READY
+  3. Client sends: SIZE <bytes>
+  4. Server responds: OK SEND
+  5. Client sends exactly <bytes> of raw binary data
+  6. Server responds: OK FILE_RECEIVED <filename>
+"""
 def handle_file(conn: socket.socket, args: str, state: dict) -> None:
-    """
-    File transfer protocol:
-      1. Client sends: FILE <filename>
-      2. Server responds: OK READY
-      3. Client sends: SIZE <bytes>
-      4. Server responds: OK SEND
-      5. Client sends exactly <bytes> of raw binary data
-      6. Server responds: OK FILE_RECEIVED <filename>
-    """
+
     if not state["authenticated"]:
         send_response(conn, "ERR", "You must LOGIN before transferring files.")
         return
+
     if not args:
         send_response(conn, "ERR", "FILE requires a filename. Usage: FILE <filename>")
         return
 
-    filename = os.path.basename(args.strip())  # strip any path traversal
+    # strip any path traversal
+    filename = os.path.basename(args.strip())
+
     if not filename:
         send_response(conn, "ERR", "Invalid filename.")
         return
 
-    # Step 1 — signal ready
     send_response(conn, "OK", "READY")
 
-    # Step 2 — receive SIZE line
     try:
         size_line = recv_line(conn)
+
     except ConnectionError as e:
         print(f"[ERROR] {e}")
         return
@@ -117,6 +118,7 @@ def handle_file(conn: socket.socket, args: str, state: dict) -> None:
 
     try:
         file_size = int(size_line[5:].strip())
+
     except ValueError:
         send_response(conn, "ERR", "Invalid file size.")
         return
@@ -125,25 +127,25 @@ def handle_file(conn: socket.socket, args: str, state: dict) -> None:
         send_response(conn, "ERR", "File size cannot be negative.")
         return
 
-    # Step 3 — signal to send data
     send_response(conn, "OK", "SEND")
-
-    # Step 4 — receive raw bytes
     received = b""
     remaining = file_size
+
     try:
         while remaining > 0:
             chunk = conn.recv(min(BUFFER_SIZE, remaining))
             if not chunk:
                 raise ConnectionError("Connection lost during file transfer.")
+
             received += chunk
             remaining -= len(chunk)
+
     except ConnectionError as e:
         print(f"[ERROR] {e}")
         send_response(conn, "ERR", "File transfer interrupted.")
         return
 
-    # Step 5 — save file
+    # save file
     os.makedirs(STORAGE_DIR, exist_ok=True)
     dest_path = os.path.join(STORAGE_DIR, filename)
     with open(dest_path, "wb") as f:
@@ -160,8 +162,6 @@ def handle_quit(conn: socket.socket, state: dict) -> bool:
     return True  # signal to close connection
 
 
-# ── Client handler ─────────────────────────────────────────────────────────────
-
 def handle_client(conn: socket.socket, addr: tuple, valid_users: set) -> None:
     print(f"[CONNECT] Client connected from {addr[0]}:{addr[1]}")
     state = {"authenticated": False, "username": None}
@@ -170,6 +170,7 @@ def handle_client(conn: socket.socket, addr: tuple, valid_users: set) -> None:
         while True:
             try:
                 line = recv_line(conn)
+
             except ConnectionError:
                 print(f"[DISCONNECT] {addr[0]}:{addr[1]} disconnected unexpectedly.")
                 break
@@ -199,12 +200,11 @@ def handle_client(conn: socket.socket, addr: tuple, valid_users: set) -> None:
 
     except Exception as e:
         print(f"[ERROR] Unexpected error with {addr}: {e}")
+
     finally:
         conn.close()
         print(f"[INFO] Connection with {addr[0]}:{addr[1]} closed.")
 
-
-# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     valid_users = load_users(USERS_FILE)
@@ -224,9 +224,11 @@ def main():
                 conn, addr = server_sock.accept()
                 handle_client(conn, addr, valid_users)
                 print("[INFO] Waiting for next client connection...\n")
+
             except KeyboardInterrupt:
                 print("\n[INFO] Server shutting down.")
                 break
+
             except Exception as e:
                 print(f"[ERROR] Failed to handle client: {e}")
 
