@@ -2,30 +2,29 @@
 CP372 - Computer Networks, Spring 2026
 Assignment 1 - TCP Client
 Group 15
-
+------------------------------------------------------------------------
 Usage:
-  python3 client.py [host] [port]
+  python3 client.py
 
-  Defaults: host=127.0.0.1, port=5372
+  Connects to host=127.0.0.1, port=5372 (hard-coded below).
 
 Commands:
   LOGIN <username>  - Authenticate with the server
   MSG <text>        - Send a text message
   FILE <filepath>   - Transfer a local file to the server
   QUIT              - Disconnect from the server
+------------------------------------------------------------------------
 """
 
+# imports
 import socket
 import os
-import sys
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5372
 BUFFER_SIZE = 4096
 
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def send_line(sock: socket.socket, line: str) -> None:
     sock.sendall((line + "\n").encode("utf-8"))
@@ -46,7 +45,7 @@ def recv_response(sock: socket.socket) -> str:
     return data.decode("utf-8").strip()
 
 
-def do_login(sock: socket.socket, args: str) -> None:
+def login(sock: socket.socket, args: str) -> None:
     if not args:
         print("[ERROR] Usage: LOGIN <username>")
         return
@@ -56,7 +55,7 @@ def do_login(sock: socket.socket, args: str) -> None:
     print(f"[SERVER] {response}")
 
 
-def do_msg(sock: socket.socket, args: str) -> None:
+def msg(sock: socket.socket, args: str) -> None:
     if not args:
         print("[ERROR] Usage: MSG <text>")
         return
@@ -73,9 +72,9 @@ File transfer protocol:
   3. Send: SIZE <bytes>
   4. Wait for: OK SEND
   5. Send raw binary file data
-  6. Wait for: OK FILE_RECEIVED <filename>
+  6. Wait for: OK FILE succeeded
 """
-def do_file(sock: socket.socket, args: str) -> None:
+def file(sock: socket.socket, args: str) -> None:
     if not args:
         print("[ERROR] Usage: FILE <filepath>")
         return
@@ -128,15 +127,16 @@ def do_file(sock: socket.socket, args: str) -> None:
     response = recv_response(sock)
     print(f"[SERVER] {response}")
 
-    if response.startswith("OK FILE_RECEIVED"):
+    if response.startswith("OK FILE succeeded"):
         print(f"[INFO] File '{filename}' transferred successfully.")
 
     else:
         print("[ERROR] File transfer may have failed.")
 
 
-def do_quit(sock: socket.socket) -> None:
+def quit(sock: socket.socket) -> None:
     send_line(sock, "QUIT")
+
     try:
         response = recv_response(sock)
         print(f"[SERVER] {response}")
@@ -147,14 +147,34 @@ def do_quit(sock: socket.socket) -> None:
     print("[INFO] Disconnected from server.")
 
 
-def main():
-    host = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_HOST
-    try:
-        port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+# dispatch a typed command line; return False when the client should quit
+def handle(sock: socket.socket, user_input: str) -> bool:
+    parts = user_input.split(" ", 1)
+    command = parts[0].upper()
+    args = parts[1] if len(parts) > 1 else ""
 
-    except ValueError:
-        print("[ERROR] Port must be an integer.")
-        sys.exit(1)
+    if command == "LOGIN":
+        login(sock, args)
+
+    elif command == "MSG":
+        msg(sock, args)
+
+    elif command == "FILE":
+        file(sock, args)
+
+    elif command == "QUIT":
+        quit(sock)
+        return False
+
+    else:
+        print(f"[ERROR] Unknown command '{command}'. Valid commands: LOGIN, MSG, FILE, QUIT")
+
+    return True
+
+
+def main():
+    host = DEFAULT_HOST
+    port = DEFAULT_PORT
 
     print(f"[INFO] Connecting to {host}:{port}...")
 
@@ -164,15 +184,16 @@ def main():
 
     except ConnectionRefusedError:
         print(f"[ERROR] Connection refused. Is the server running on {host}:{port}?")
-        sys.exit(1)
+        return
 
     except OSError as e:
         print(f"[ERROR] Could not connect: {e}")
-        sys.exit(1)
+        return
 
     print(f"[INFO] Connected to {host}:{port}")
     print("[INFO] Commands: LOGIN <user>  MSG <text>  FILE <path>  QUIT\n")
 
+    # post-entry command loop to execute commands
     try:
         while True:
             try:
@@ -180,27 +201,15 @@ def main():
 
             except (EOFError, KeyboardInterrupt):
                 print("\n[INFO] Interrupted. Disconnecting...")
-                do_quit(sock)
+                quit(sock)
                 break
 
             if not user_input:
+                print("[INFO] No command given.")
                 continue
 
-            parts = user_input.split(" ", 1)
-            command = parts[0].upper()
-            args = parts[1] if len(parts) > 1 else ""
-
-            if command == "LOGIN":
-                do_login(sock, args)
-            elif command == "MSG":
-                do_msg(sock, args)
-            elif command == "FILE":
-                do_file(sock, args)
-            elif command == "QUIT":
-                do_quit(sock)
+            if not handle(sock, user_input):
                 break
-            else:
-                print(f"[ERROR] Unknown command '{command}'. Valid commands: LOGIN, MSG, FILE, QUIT")
 
     except ConnectionError as e:
         print(f"\n[ERROR] Connection lost: {e}")

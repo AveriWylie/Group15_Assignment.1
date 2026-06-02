@@ -2,29 +2,29 @@
 CP372 - Computer Networks, Spring 2026
 Assignment 1 - TCP Server
 Group 15
-
+------------------------------------------------------------------------
 Protocol Commands:
   LOGIN <username>  - Authenticate using users.txt
   MSG <text>        - Send a text message to the server
   FILE <filename>   - Transfer a file to the server
   QUIT              - Disconnect from the server
+------------------------------------------------------------------------
 """
 
+# imports
 import socket
 import os
 import time
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration - host accepts from all connections including loop back
 HOST = "0.0.0.0"
-PORT = int(os.environ.get("SERVER_PORT", 5372))
+PORT = 5372
 USERS_FILE = "users.txt"
 STORAGE_DIR = "server_files"
 BUFFER_SIZE = 4096
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
 def load_users(path: str) -> set:
-
     if not os.path.exists(path):
         print(f"[WARNING] Users file '{path}' not found. No users will be allowed.")
         return set()
@@ -44,9 +44,12 @@ def recv_line(conn: socket.socket) -> str:
         chunk = conn.recv(1)
         if not chunk:
             raise ConnectionError("Client disconnected unexpectedly.")
+
         if chunk == b"\n":
             break
+
         data += chunk
+
     return data.decode("utf-8").strip()
 
 
@@ -54,12 +57,15 @@ def handle_login(conn: socket.socket, args: str, valid_users: set, state: dict) 
     if not args:
         send_response(conn, "ERR", "LOGIN requires a username. Usage: LOGIN <username>")
         return
+
     username = args.strip()
+
     if username in valid_users:
         state["authenticated"] = True
         state["username"] = username
-        send_response(conn, "OK", f"Welcome, {username}!")
+        send_response(conn, "OK", "LOGIN succeeded")
         print(f"[AUTH] User '{username}' authenticated.")
+
     else:
         send_response(conn, "ERR", f"Unknown user '{username}'. Access denied.")
         print(f"[AUTH] Failed login attempt for '{username}'.")
@@ -69,12 +75,14 @@ def handle_msg(conn: socket.socket, args: str, state: dict) -> None:
     if not state["authenticated"]:
         send_response(conn, "ERR", "You must LOGIN before sending messages.")
         return
+
     if not args:
         send_response(conn, "ERR", "MSG requires text. Usage: MSG <text>")
         return
+
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"[MSG] [{timestamp}] {state['username']}: {args}")
-    send_response(conn, "OK", f"Message received: {args}")
+    send_response(conn, "OK", "MSG succeeded")
 
 
 """
@@ -84,10 +92,9 @@ File transfer protocol:
   3. Client sends: SIZE <bytes>
   4. Server responds: OK SEND
   5. Client sends exactly <bytes> of raw binary data
-  6. Server responds: OK FILE_RECEIVED <filename>
+  6. Server responds: OK FILE succeeded
 """
 def handle_file(conn: socket.socket, args: str, state: dict) -> None:
-
     if not state["authenticated"]:
         send_response(conn, "ERR", "You must LOGIN before transferring files.")
         return
@@ -152,12 +159,12 @@ def handle_file(conn: socket.socket, args: str, state: dict) -> None:
         f.write(received)
 
     print(f"[FILE] Received '{filename}' ({file_size} bytes) from {state['username']}.")
-    send_response(conn, "OK", f"FILE_RECEIVED {filename}")
+    send_response(conn, "OK", "FILE succeeded")
 
 
 def handle_quit(conn: socket.socket, state: dict) -> bool:
     username = state.get("username", "unknown")
-    send_response(conn, "OK", "Goodbye!")
+    send_response(conn, "OK", "QUIT succeeded")
     print(f"[DISCONNECT] {username} disconnected gracefully.")
     return True  # signal to close connection
 
@@ -188,13 +195,17 @@ def handle_client(conn: socket.socket, addr: tuple, valid_users: set) -> None:
 
             if command == "LOGIN":
                 handle_login(conn, args, valid_users, state)
+
             elif command == "MSG":
                 handle_msg(conn, args, state)
+
             elif command == "FILE":
                 handle_file(conn, args, state)
+
             elif command == "QUIT":
                 handle_quit(conn, state)
                 break
+
             else:
                 send_response(conn, "ERR", f"Unknown command '{command}'. Valid commands: LOGIN, MSG, FILE, QUIT")
 
@@ -209,7 +220,6 @@ def handle_client(conn: socket.socket, addr: tuple, valid_users: set) -> None:
 def main():
     valid_users = load_users(USERS_FILE)
     print(f"[INFO] Loaded {len(valid_users)} valid user(s) from '{USERS_FILE}'.")
-
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
